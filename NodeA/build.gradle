@@ -1,0 +1,116 @@
+buildscript {
+    ext.kotlin_version = '1.2.50'
+    ext.vertx_version = '3.5.2'
+
+    repositories {
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+        classpath "io.vertx:vertx-tcp-eventbus-bridge:$vertx_version"
+    }
+}
+
+plugins {
+    id "io.vertx.vertx-plugin" version "0.0.8"
+    id "org.jetbrains.kotlin.jvm" version "1.2.41"
+    id "org.jetbrains.gradle.plugin.idea-ext" version "0.2"
+    id "org.hidetake.ssh" version "2.9.0"
+}
+
+group 'zawa.org'
+version '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+    jcenter()
+}
+
+compileKotlin {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+
+    kotlinOptions {
+        jvmTarget = "1.8"
+        apiVersion = "1.2"
+        languageVersion = "1.2"
+    }
+}
+
+dependencies {
+    // Kotlin
+    compile "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+    compile "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    // Vert.x
+    compile "io.vertx:vertx-lang-kotlin:$vertx_version"
+    compile "io.vertx:vertx-tcp-eventbus-bridge:$vertx_version"
+}
+
+// By default Kotlin targets 1.6 we'll need 1.8
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).all {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+
+    kotlinOptions {
+        jvmTarget = "1.8"
+        apiVersion = "1.2"
+        languageVersion = "1.2"
+    }
+}
+
+mainClassName = 'io.vertx.core.Launcher'
+
+def mainVerticleName = 'org.zawa.remote.VerticleA'
+
+vertx {
+    mainVerticle = mainVerticleName
+}
+
+// Vert.x watches for file changes in all subdirectories of src/ but only for files with .java extension
+def watchForChange = 'src/**/*.java'
+
+// Vert.x will call this task on changes
+def doOnChange = './gradlew classes'
+
+run {
+    args = ['run',
+            mainVerticleName,
+            "--redeploy=$watchForChange",
+            "--launcher-class=$mainClassName",
+            "--on-redeploy=$doOnChange"]
+}
+
+// Override generated jar name without version
+shadowJar {
+    mainClassName = 'io.vertx.core.Launcher'
+    baseName = 'remote-verticle-a'
+    version = null
+}
+
+// Remote virtual machine SSH connection
+remotes {
+    node1 {
+        role 'virtual-machine'
+        host = '192.168.56.101'
+        user = 'ubuntu'
+        password = 'ubuntu'
+    }
+}
+
+// Task to push fat jar onto virtual machine
+task deploy_to_virtual_box {
+    group = 'deployment'
+    dependsOn = [shadowJar]
+    doLast {
+        ssh.run {
+            session(remotes.role('virtual-machine')) {
+                put from: "$buildDir/libs/$shadowJar.baseName-fat.jar", into: '/home/ubuntu/'
+            }
+        }
+    }
+}
+
+task wrapper(type: Wrapper) {
+    gradleVersion = '4.8'
+}
